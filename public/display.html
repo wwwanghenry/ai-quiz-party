@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>投影大螢幕</title>
+<style>
+  :root{ --yellow:#ffd100; --bg-deep:#0B0F19; --glass:rgba(255,255,255,0.06); --glass-border:rgba(255,255,255,0.12); --text-main:#F5F6FA; --text-sub:#9AA1B4; }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Noto Sans TC","PingFang TC",sans-serif;background:radial-gradient(circle at 20% 0%, #16203a 0%, var(--bg-deep) 55%);color:var(--text-main);min-height:100vh;padding:24px;}
+  .wrap{max-width:1200px;margin:0 auto;padding:40px;text-align:center;}
+  .timer{width:110px;height:110px;border-radius:50%;border:4px solid var(--yellow);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:800;color:var(--yellow);margin:0 auto 22px;box-shadow:0 0 30px rgba(255,209,0,.4);display:none;}
+  .q-title{font-size:34px;font-weight:800;margin-bottom:30px;}
+  .opt-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin:0 auto 30px;max-width:960px;}
+  .opt-col{background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:16px;padding:22px;}
+  .opt-letter{width:44px;height:44px;border-radius:50%;background:var(--yellow);color:#1a1400;display:flex;align-items:center;justify-content:center;font-weight:800;margin:0 auto 12px;font-size:18px;}
+  .opt-text{font-size:16px;color:var(--text-sub);margin-bottom:14px;min-height:24px;}
+  .bar-track{height:18px;background:rgba(255,255,255,0.06);border-radius:9px;overflow:hidden;margin-bottom:8px;}
+  .bar-fill{height:100%;background:var(--yellow);border-radius:9px;transition:width .4s;}
+  .opt-pct{font-size:22px;font-weight:800;color:var(--yellow);}
+  .ai-box{max-width:860px;margin:0 auto;text-align:left;background:rgba(255,255,255,0.04);border:1px solid var(--yellow);border-radius:18px;padding:26px 28px;box-shadow:0 0 40px rgba(255,209,0,.15);display:none;}
+  .ai-tag{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:800;color:#1a1400;background:var(--yellow);padding:4px 12px;border-radius:20px;margin-bottom:14px;}
+  .ai-text{font-size:18px;line-height:1.8;color:var(--text-main);min-height:90px;}
+  .cursor{display:inline-block;width:8px;height:20px;background:var(--yellow);margin-left:2px;animation:blink 1s step-start infinite;vertical-align:middle;}
+  @keyframes blink{50%{opacity:0;}}
+  .lb-wrap{max-width:560px;margin:36px auto 0;text-align:left;display:none;}
+  .lb-row{display:flex;align-items:center;gap:14px;padding:10px 16px;border-radius:12px;background:rgba(255,255,255,0.03);margin-bottom:8px;}
+  .lb-rank{width:28px;font-weight:800;color:var(--text-sub);}
+  .lb-row:first-child .lb-rank{color:var(--yellow);font-size:18px;}
+  .lb-name{flex:1;font-weight:700;}
+  .lb-score{font-weight:800;color:var(--yellow);}
+  .idle-hint{color:var(--text-sub);font-size:18px;margin-top:80px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="timer" id="timer">--</div>
+  <div id="idleHint" class="idle-hint">等待主持人發布題目…</div>
+  <div class="q-title" id="qTitle" style="display:none;"></div>
+  <div class="opt-cols" id="optCols" style="display:none;">
+    <div class="opt-col"><div class="opt-letter">A</div><div class="opt-text" id="optTextA"></div><div class="bar-track"><div class="bar-fill" id="barA" style="width:0%;"></div></div><div class="opt-pct" id="pctA">0%</div></div>
+    <div class="opt-col"><div class="opt-letter">B</div><div class="opt-text" id="optTextB"></div><div class="bar-track"><div class="bar-fill" id="barB" style="width:0%;"></div></div><div class="opt-pct" id="pctB">0%</div></div>
+    <div class="opt-col"><div class="opt-letter">C</div><div class="opt-text" id="optTextC"></div><div class="bar-track"><div class="bar-fill" id="barC" style="width:0%;"></div></div><div class="opt-pct" id="pctC">0%</div></div>
+  </div>
+  <div class="ai-box" id="aiBox"><div class="ai-tag">Gemini 即時推理中</div><div class="ai-text" id="aiText"></div></div>
+  <div class="lb-wrap" id="lbWrap"><h3 style="color:var(--yellow);">🏆 排行榜 Top 10</h3><div id="lbList"></div></div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  const socket = io();
+  let countdownInterval = null;
+
+  socket.on('question:new', (q) => {
+    document.getElementById('idleHint').style.display = 'none';
+    document.getElementById('qTitle').style.display = 'block';
+    document.getElementById('qTitle').textContent = q.text;
+    document.getElementById('optCols').style.display = 'grid';
+    document.getElementById('optTextA').textContent = q.options.A;
+    document.getElementById('optTextB').textContent = q.options.B;
+    document.getElementById('optTextC').textContent = q.options.C;
+    document.getElementById('aiBox').style.display = 'none';
+    document.getElementById('lbWrap').style.display = 'none';
+    ['A','B','C'].forEach(k=>{ document.getElementById('bar'+k).style.width='0%'; document.getElementById('pct'+k).textContent='0%'; });
+  });
+
+  socket.on('voting:opened', ({serverStartTime, durationMs}) => {
+    const timerEl = document.getElementById('timer');
+    timerEl.style.display = 'flex';
+    const endTime = serverStartTime + durationMs;
+    clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+      const remain = Math.max(0, Math.ceil((endTime - Date.now())/1000));
+      timerEl.textContent = remain;
+      if(remain <= 0) clearInterval(countdownInterval);
+    }, 200);
+  });
+
+  socket.on('vote_tally', ({percents}) => {
+    ['A','B','C'].forEach(k=>{
+      document.getElementById('bar'+k).style.width = percents[k] + '%';
+      document.getElementById('pct'+k).textContent = percents[k] + '%';
+    });
+  });
+
+  socket.on('voting:closed', () => { document.getElementById('timer').style.display = 'none'; });
+
+  socket.on('ai:revealStart', () => {
+    document.getElementById('aiBox').style.display = 'block';
+    document.getElementById('aiText').innerHTML = '<span class="cursor"></span>';
+  });
+  let aiBuffer = '';
+  socket.on('ai:streamChunk', ({text}) => {
+    aiBuffer += text;
+    document.getElementById('aiText').innerHTML = aiBuffer + '<span class="cursor"></span>';
+  });
+  socket.on('ai:streamEnd', () => {
+    document.getElementById('aiText').innerHTML = aiBuffer;
+  });
+  socket.on('ai:streamError', ({message}) => {
+    document.getElementById('aiText').textContent = message;
+  });
+
+  socket.on('round:scored', ({leaderboard}) => {
+    document.getElementById('lbWrap').style.display = 'block';
+    document.getElementById('lbList').innerHTML = leaderboard.map((p,i)=>`
+      <div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name">${p.nickname}</div><div class="lb-score">${p.score}</div></div>
+    `).join('');
+  });
+
+  socket.on('game:reset', () => {
+    aiBuffer = '';
+    document.getElementById('idleHint').style.display = 'block';
+    document.getElementById('qTitle').style.display = 'none';
+    document.getElementById('optCols').style.display = 'none';
+    document.getElementById('aiBox').style.display = 'none';
+    document.getElementById('lbWrap').style.display = 'none';
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>玩家搶答</title>
+<style>
+  :root{ --yellow:#ffd100; --bg-deep:#0B0F19; --glass-border:rgba(255,255,255,0.12); --text-main:#F5F6FA; --text-sub:#9AA1B4; --green:#33d17a; }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Noto Sans TC","PingFang TC",sans-serif;background:var(--bg-deep);color:var(--text-main);min-height:100vh;padding:20px;display:flex;align-items:center;justify-content:center;}
+  .card{width:100%;max-width:400px;}
+  .phone-timer{text-align:center;font-size:14px;color:var(--yellow);font-weight:700;margin-bottom:10px;}
+  .phone-q{font-size:18px;font-weight:800;text-align:center;margin-bottom:20px;line-height:1.5;}
+  .phone-btn{display:flex;align-items:center;gap:12px;width:100%;padding:20px;margin-bottom:14px;border-radius:16px;border:1px solid var(--glass-border);background:rgba(255,255,255,0.04);font-size:16px;font-weight:700;cursor:pointer;color:var(--text-main);}
+  .phone-btn .badge{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0;}
+  .phone-btn.locked{border-color:var(--yellow);background:rgba(255,209,0,0.12);}
+  .phone-btn.locked .badge{background:var(--yellow);color:#1a1400;}
+  .phone-btn:disabled{opacity:.5;}
+  .lock-note{text-align:center;font-size:13px;color:var(--green);margin-top:4px;font-weight:700;}
+  .phone-name-input{width:100%;padding:16px;border-radius:14px;background:rgba(255,255,255,0.05);border:1px solid var(--glass-border);color:var(--text-main);text-align:center;font-size:16px;margin-bottom:16px;outline:none;}
+  .phone-name-input:focus{border-color:var(--yellow);}
+  .phone-join-btn{width:100%;padding:16px;border-radius:14px;border:none;background:var(--yellow);color:#1a1400;font-weight:800;font-size:16px;}
+  .wait-hint{text-align:center;color:var(--text-sub);margin-top:40px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="joinBox">
+    <div class="phone-q">輸入暱稱加入活動</div>
+    <input class="phone-name-input" id="nicknameInput" placeholder="你的暱稱" maxlength="12" />
+    <button class="phone-join-btn" onclick="joinGame()">加入搶答 🎉</button>
+  </div>
+
+  <div id="playBox" style="display:none;">
+    <div id="waitHint" class="wait-hint">等待主持人發布題目…</div>
+    <div id="questionArea" style="display:none;">
+      <div class="phone-timer" id="phoneTimer"></div>
+      <div class="phone-q" id="phoneQ"></div>
+      <button class="phone-btn" id="btnA" onclick="answer('A')"><span class="badge">A</span><span id="textA"></span></button>
+      <button class="phone-btn" id="btnB" onclick="answer('B')"><span class="badge">B</span><span id="textB"></span></button>
+      <button class="phone-btn" id="btnC" onclick="answer('C')"><span class="badge">C</span><span id="textC"></span></button>
+      <div class="lock-note" id="lockNote" style="visibility:hidden;">✓ 已鎖定,等待結果公佈…</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  const socket = io();
+  let locked = null;
+  let votingOpen = false;
+
+  function joinGame(){
+    const nickname = document.getElementById('nicknameInput').value.trim();
+    if(!nickname) return alert('請輸入暱稱');
+    socket.emit('player:join', { nickname });
+    document.getElementById('joinBox').style.display = 'none';
+    document.getElementById('playBox').style.display = 'block';
+  }
+
+  socket.on('question:new', (q) => {
+    locked = null; votingOpen = false;
+    document.getElementById('waitHint').style.display = 'none';
+    document.getElementById('questionArea').style.display = 'block';
+    document.getElementById('phoneQ').textContent = q.text;
+    document.getElementById('textA').textContent = q.options.A;
+    document.getElementById('textB').textContent = q.options.B;
+    document.getElementById('textC').textContent = q.options.C;
+    ['A','B','C'].forEach(k=>{
+      const btn = document.getElementById('btn'+k);
+      btn.classList.remove('locked'); btn.disabled = true;
+    });
+    document.getElementById('lockNote').style.visibility = 'hidden';
+    document.getElementById('phoneTimer').textContent = '';
+  });
+
+  socket.on('voting:opened', ({serverStartTime, durationMs}) => {
+    votingOpen = true; locked = null;
+    ['A','B','C'].forEach(k=>{
+      const btn = document.getElementById('btn'+k);
+      btn.classList.remove('locked'); btn.disabled = false;
+    });
+    const endTime = serverStartTime + durationMs;
+    const t = setInterval(()=>{
+      const remain = Math.max(0, Math.ceil((endTime - Date.now())/1000));
+      document.getElementById('phoneTimer').textContent = '⏱ 剩餘 ' + remain + ' 秒';
+      if(remain<=0) clearInterval(t);
+    }, 200);
+  });
+
+  socket.on('voting:closed', () => {
+    votingOpen = false;
+    ['A','B','C'].forEach(k=>{ document.getElementById('btn'+k).disabled = true; });
+  });
+
+  function answer(choice){
+    if(locked || !votingOpen) return;
+    locked = choice;
+    document.getElementById('btn'+choice).classList.add('locked');
+    ['A','B','C'].forEach(k=>{ document.getElementById('btn'+k).disabled = true; });
+    document.getElementById('lockNote').style.visibility = 'visible';
+    socket.emit('player:lockAnswer', { choice }, (res) => {
+      if(!res.ok){
+        locked = null;
+        document.getElementById('btn'+choice).classList.remove('locked');
+        document.getElementById('lockNote').style.visibility = 'hidden';
+        if(votingOpen) ['A','B','C'].forEach(k=>{ document.getElementById('btn'+k).disabled = false; });
+      }
+    });
+  }
+
+  socket.on('game:reset', () => {
+    locked = null; votingOpen = false;
+    document.getElementById('waitHint').style.display = 'block';
+    document.getElementById('questionArea').style.display = 'none';
+  });
+</script>
+</body>
+</html>

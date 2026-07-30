@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>主控端 Host Dashboard</title>
+<style>
+  :root{ --yellow:#ffd100; --bg-deep:#0B0F19; --glass:rgba(255,255,255,0.06); --glass-border:rgba(255,255,255,0.12); --text-main:#F5F6FA; --text-sub:#9AA1B4; }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Noto Sans TC","PingFang TC",sans-serif;background:radial-gradient(circle at 20% 0%, #16203a 0%, var(--bg-deep) 55%);color:var(--text-main);min-height:100vh;padding:24px;}
+  .wrap{max-width:1100px;margin:0 auto;}
+  .grid{display:grid;grid-template-columns:1.3fr 1fr;gap:20px;}
+  .glass{background:var(--glass);border:1px solid var(--glass-border);backdrop-filter:blur(14px);border-radius:20px;padding:22px;}
+  h3{margin:0 0 14px;font-size:15px;color:var(--yellow);}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:12px;color:var(--text-sub);margin-bottom:6px;}
+  .field input,.field textarea{width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--glass-border);border-radius:10px;padding:10px 12px;color:var(--text-main);font-size:14px;outline:none;}
+  .field input:focus,.field textarea:focus{border-color:var(--yellow);}
+  .opt-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .btn{background:var(--yellow);color:#1a1400;border:none;font-weight:800;padding:12px 18px;border-radius:12px;cursor:pointer;font-size:14px;margin:4px 6px 4px 0;}
+  .btn.ghost{background:transparent;color:var(--text-sub);border:1px solid var(--glass-border);font-weight:600;}
+  .btn:disabled{opacity:.35;cursor:not-allowed;}
+  .stat-row{display:flex;gap:12px;margin-bottom:16px;}
+  .stat{flex:1;background:rgba(255,255,255,0.03);border-radius:12px;padding:14px;text-align:center;border:1px solid var(--glass-border);}
+  .stat .n{font-size:26px;font-weight:800;color:var(--yellow);}
+  .stat .l{font-size:11px;color:var(--text-sub);margin-top:2px;}
+  .bar-track{height:14px;background:rgba(255,255,255,0.06);border-radius:8px;overflow:hidden;margin-bottom:4px;}
+  .bar-fill{height:100%;background:var(--yellow);border-radius:8px;transition:width .4s;}
+  .auth-mask{position:fixed;inset:0;background:#0B0F19;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:99;}
+  .auth-mask input{padding:12px;border-radius:10px;border:1px solid var(--glass-border);background:rgba(255,255,255,0.05);color:#fff;width:260px;text-align:center;}
+</style>
+</head>
+<body>
+
+<div class="auth-mask" id="authMask">
+  <h3>請輸入主控密碼</h3>
+  <input id="secretInput" type="password" placeholder="HOST_SECRET" />
+  <button class="btn" onclick="doAuth()">登入主控端</button>
+  <p id="authErr" style="color:#ff5c5c;font-size:13px;"></p>
+</div>
+
+<div class="wrap">
+  <div class="grid">
+    <div class="glass">
+      <h3>題目管理</h3>
+      <div class="field"><label>題目 / Prompt</label><textarea id="qText" rows="2">請 AI 推理:「珍珠奶茶」的糖漿是用什麼原料熬煮而成？</textarea></div>
+      <div class="opt-row">
+        <div class="field"><label>選項 A</label><input id="optA" value="黑糖" /></div>
+        <div class="field"><label>選項 B</label><input id="optB" value="焦糖" /></div>
+        <div class="field"><label>選項 C</label><input id="optC" value="蜂蜜" /></div>
+      </div>
+      <button class="btn" onclick="publishQuestion()">發布題目</button>
+
+      <h3 style="margin-top:22px;">流程控制</h3>
+      <button class="btn" id="btnOpen" onclick="openVoting()">① 開啟投票 (20秒)</button>
+      <button class="btn ghost" id="btnClose" onclick="closeVoting()">② 關閉投票</button>
+      <button class="btn ghost" id="btnReveal" onclick="revealAI()">③ 揭曉 AI 答案</button>
+      <br/>
+      <button class="btn ghost" onclick="resetGame()">重置本場活動</button>
+    </div>
+
+    <div class="glass">
+      <h3>即時場控</h3>
+      <div class="stat-row">
+        <div class="stat"><div class="n" id="playerCount">0</div><div class="l">連線人數</div></div>
+        <div class="stat"><div class="n" id="answeredCount">0</div><div class="l">已鎖定答案</div></div>
+        <div class="stat"><div class="n" id="phaseLabel">idle</div><div class="l">目前狀態</div></div>
+      </div>
+
+      <div id="tallyBox">
+        <div><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-sub);"><span>A</span><span id="pctA">0%</span></div><div class="bar-track"><div class="bar-fill" id="barA" style="width:0%;"></div></div></div>
+        <div><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-sub);"><span>B</span><span id="pctB">0%</span></div><div class="bar-track"><div class="bar-fill" id="barB" style="width:0%;"></div></div></div>
+        <div><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-sub);"><span>C</span><span id="pctC">0%</span></div><div class="bar-track"><div class="bar-fill" id="barC" style="width:0%;"></div></div></div>
+      </div>
+
+      <h3 style="margin-top:22px;">設定正確答案並算分</h3>
+      <div class="opt-row">
+        <button class="btn ghost" onclick="scoreRound('A')">A 正確</button>
+        <button class="btn ghost" onclick="scoreRound('B')">B 正確</button>
+        <button class="btn ghost" onclick="scoreRound('C')">C 正確</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+  const socket = io();
+  let authed = false;
+
+  function doAuth(){
+    const secret = document.getElementById('secretInput').value;
+    socket.emit('host:auth', secret, (res) => {
+      if(res.ok){
+        authed = true;
+        document.getElementById('authMask').style.display = 'none';
+      } else {
+        document.getElementById('authErr').textContent = '密碼錯誤,請重新輸入';
+      }
+    });
+  }
+
+  function publishQuestion(){
+    socket.emit('host:setQuestion', {
+      text: document.getElementById('qText').value,
+      options: {
+        A: document.getElementById('optA').value,
+        B: document.getElementById('optB').value,
+        C: document.getElementById('optC').value,
+      }
+    });
+  }
+  function openVoting(){ socket.emit('host:openVoting', { durationMs: 20000 }); }
+  function closeVoting(){ socket.emit('host:closeVoting'); }
+  function revealAI(){ socket.emit('host:revealAI'); }
+  function scoreRound(choice){ socket.emit('host:scoreRound', { correctChoice: choice }); }
+  function resetGame(){ if(confirm('確定要重置本場所有分數與題目嗎？')) socket.emit('host:reset'); }
+
+  socket.on('player_count', ({count}) => { document.getElementById('playerCount').textContent = count; });
+  socket.on('vote_tally', ({percents, totalAnswered}) => {
+    document.getElementById('answeredCount').textContent = totalAnswered;
+    ['A','B','C'].forEach(k=>{
+      document.getElementById('bar'+k).style.width = percents[k] + '%';
+      document.getElementById('pct'+k).textContent = percents[k] + '%';
+    });
+  });
+  socket.on('voting:opened', () => document.getElementById('phaseLabel').textContent = 'voting');
+  socket.on('voting:closed', () => document.getElementById('phaseLabel').textContent = 'locked');
+  socket.on('ai:revealStart', () => document.getElementById('phaseLabel').textContent = 'revealing');
+  socket.on('round:scored', () => document.getElementById('phaseLabel').textContent = 'scored');
+  socket.on('game:reset', () => document.getElementById('phaseLabel').textContent = 'idle');
+</script>
+</body>
+</html>
