@@ -1,9 +1,5 @@
 /**
  * AI 做法猜測與實時搶答系統 — 單一服務版
- * 這個檔案同時做兩件事：
- *   1. 提供三個純 HTML 網頁 (host.html / display.html / player.html)
- *   2. 處理 Socket.io 即時邏輯 + Gemini API 串流
- * 部署時只需要跑這一個服務,不需要另外架前端。
  */
 
 const path = require("path");
@@ -29,9 +25,6 @@ const io = new Server(server, {
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 const HOST_SECRET = process.env.HOST_SECRET || "changeme";
 
-// ---------------------------------------------------------------
-// 記憶體內遊戲狀態
-// ---------------------------------------------------------------
 const gameState = {
   phase: "idle",
   question: null,
@@ -140,14 +133,13 @@ io.on("connection", (socket) => {
 選項：A. ${q.options.A} / B. ${q.options.B} / C. ${q.options.C}`;
 
     try {
-const response = await ai.models.generateContentStream({
-     model: "gemini-2.5-flash",
-     contents: prompt,
-   });
-   for await (const chunk of response) {
-     const text = chunk.text;
-     if (text) io.emit("ai:streamChunk", { text });
-   }
+      const response = await ai.models.generateContentStream({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+      });
+      for await (const chunk of response) {
+        const text = chunk.text;
+        if (text) io.emit("ai:streamChunk", { text });
       }
       io.emit("ai:streamEnd");
     } catch (err) {
