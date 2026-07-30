@@ -11,7 +11,7 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenAI } = require("@google/genai");
 require("dotenv").config();
 
 const app = express();
@@ -26,8 +26,7 @@ const io = new Server(server, {
   pingTimeout: 5000,
 });
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 const HOST_SECRET = process.env.HOST_SECRET || "changeme";
 
 // ---------------------------------------------------------------
@@ -141,10 +140,14 @@ io.on("connection", (socket) => {
 選項：A. ${q.options.A} / B. ${q.options.B} / C. ${q.options.C}`;
 
     try {
-      const result = await model.generateContentStream(prompt);
-      for await (const chunk of result.stream) {
-        const text = chunk.text();
-        if (text) io.emit("ai:streamChunk", { text });
+const response = await ai.models.generateContentStream({
+     model: "gemini-2.5-flash",
+     contents: prompt,
+   });
+   for await (const chunk of response) {
+     const text = chunk.text;
+     if (text) io.emit("ai:streamChunk", { text });
+   }
       }
       io.emit("ai:streamEnd");
     } catch (err) {
