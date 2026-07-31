@@ -134,7 +134,7 @@ io.on("connection", (socket) => {
 
     try {
       const response = await ai.models.generateContentStream({
-        model: "gemini-2.5-flash",
+        model: "gemini-flash-latest",
         contents: prompt,
       });
       for await (const chunk of response) {
