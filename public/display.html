@@ -50,8 +50,10 @@
 <script>
   const socket = io();
   let countdownInterval = null;
+  let aiBuffer = '';
 
   socket.on('question:new', (q) => {
+    aiBuffer = '';
     document.getElementById('idleHint').style.display = 'none';
     document.getElementById('qTitle').style.display = 'block';
     document.getElementById('qTitle').textContent = q.text;
@@ -60,6 +62,7 @@
     document.getElementById('optTextB').textContent = q.options.B;
     document.getElementById('optTextC').textContent = q.options.C;
     document.getElementById('aiBox').style.display = 'none';
+    document.getElementById('aiText').innerHTML = '';
     document.getElementById('lbWrap').style.display = 'none';
     ['A','B','C'].forEach(k=>{ document.getElementById('bar'+k).style.width='0%'; document.getElementById('pct'+k).textContent='0%'; });
   });
@@ -86,10 +89,10 @@
   socket.on('voting:closed', () => { document.getElementById('timer').style.display = 'none'; });
 
   socket.on('ai:revealStart', () => {
+    aiBuffer = '';
     document.getElementById('aiBox').style.display = 'block';
     document.getElementById('aiText').innerHTML = '<span class="cursor"></span>';
   });
-  let aiBuffer = '';
   socket.on('ai:streamChunk', ({text}) => {
     aiBuffer += text;
     document.getElementById('aiText').innerHTML = aiBuffer + '<span class="cursor"></span>';
