@@ -162,19 +162,53 @@ io.on("connection", (socket) => {
 題目：${q.text}
 選項：A. ${q.options.A} / B. ${q.options.B} / C. ${q.options.C}`;
 
-    try {
-      const response = await ai.models.generateContentStream({
-        model: "gemini-3.6-flash",
-        contents: prompt,
-      });
-      for await (const chunk of response) {
-        const text = chunk.text;
-        if (text) io.emit("ai:streamChunk", { text });
+    const FALLBACK_TEXT = "（AI 伺服器暫時連不上線，這是備用回答）大家先想想自己會怎麼選，答案接下來公布！";
+    const MAX_RETRIES = 2;       // 遇到暫時性塞車最多自動重試 2 次
+    const RETRY_DELAY_MS = 2500; // 每次重試間隔
+
+    function isTransientError(err) {
+      const status = err?.status || err?.cause?.status;
+      const msg = err?.message || "";
+      return status === 503 || /high demand|overloaded|unavailable/i.test(msg);
+    }
+
+    // 用「假打字機」把一段文字逐步廣播出去，讓備用答案跟正常 AI 回答的呈現方式一致
+    async function streamFallbackText(text) {
+      let i = 0;
+      while (i < text.length) {
+        i += 2;
+        io.emit("ai:streamChunk", { text: text.slice(0, i) });
+        await new Promise((r) => setTimeout(r, 40));
       }
       io.emit("ai:streamEnd");
-    } catch (err) {
-      console.error("Gemini stream error:", err);
-      io.emit("ai:streamError", { message: "AI 生成失敗,請重試" });
+    }
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await ai.models.generateContentStream({
+          model: "gemini-3.6-flash",
+          contents: prompt,
+        });
+        for await (const chunk of response) {
+          const text = chunk.text;
+          if (text) io.emit("ai:streamChunk", { text });
+        }
+        io.emit("ai:streamEnd");
+        return; // 成功，結束
+      } catch (err) {
+        console.error(`Gemini stream error (第 ${attempt + 1} 次嘗試):`, err);
+
+        if (isTransientError(err) && attempt < MAX_RETRIES) {
+          io.emit("ai:retrying", { attempt: attempt + 1, delayMs: RETRY_DELAY_MS });
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue; // 重試
+        }
+
+        // 重試次數用完，或是非暫時性錯誤（例如金鑰無效），改用備用答案，避免大螢幕卡住
+        io.emit("ai:streamError", { message: "AI 生成失敗，改用備用回答" });
+        await streamFallbackText(FALLBACK_TEXT);
+        return;
+      }
     }
   });
 
